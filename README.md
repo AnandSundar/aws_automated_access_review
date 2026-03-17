@@ -307,18 +307,8 @@ gantt
 
 ---
 
-## 👤 ABOUT THE AUTHOR
-
-I'm a backend software engineer actively transitioning into cloud security and GRC. I spent several years building APIs and microservices in Go and Python, but I kept coming back to the security and compliance problems I saw at every company I worked at. Instead of just complaining about manual access reviews, I decided to build a tool that solves one of the most common GRC pain points in AWS environments.
-
-I have hands-on experience with AWS Lambda, CloudFormation, IAM, S3, KMS, CloudTrail, Security Hub, and I'm pursuing my AWS Solutions Architect Professional certification. I don't just talk about security—I build security tooling that actually solves business problems.
-
-This project represents everything I care about: automation, compliance, and building things that make teams more effective.
-
-> Open to GRC Engineer, Cloud Security Engineer, and Security Automation roles. Let's connect.
-
-- [LinkedIn](https://linkedin.com/in/yourprofile)
-- [GitHub](https://github.com/yourusername)
+- [LinkedIn](https://linkedin.com/in/anandsundar96)
+- [GitHub](https://github.com/anandsundar)
 
 ---
 
