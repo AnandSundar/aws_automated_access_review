@@ -1,6 +1,4 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+
 
 [![AWS Lambda](https://img.shields.io/badge/AWS%20Lambda-orange?style=for-the-badge&logo=awslambda)](https://aws.amazon.com/lambda/)
 [![Amazon Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-purple?style=for-the-badge&logo=amazonaws)](https://aws.amazon.com/bedrock/)
@@ -12,6 +10,10 @@
 
 > "Automated IAM access reviews, AI-powered reporting, and compliance evidence 
 > generation — deployed in one command."
+
+
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/181a04b2-a120-4739-9fc2-fe22b14c4229" />
+
 
 ---
 
