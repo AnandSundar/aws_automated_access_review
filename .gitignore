@@ -1,0 +1,52 @@
+# Node.js
+node_modules/
+build/
+dist/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env*
+!.env.example
+
+# AWS
+.aws-sam/
+*.zip
+
+# Reports (local output)
+reports/
+
+# Local variables
+response.json

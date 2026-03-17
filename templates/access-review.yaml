@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Automated Access Review - IAM Security Automation'
+
+Parameters:
+  RecipientEmail:
+    Type: String
+    Description: Email address to receive reports (must be SES verified)
+  ScheduleExpression:
+    Type: String
+    Default: 'rate(30 days)'
+    Description: EventBridge schedule for the review
+
+Resources:
+  # S3 Bucket for Reports
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldReports
+            Status: Enabled
+            ExpirationInDays: 365
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AccessReviewPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Read permissions for various services
+              - Effect: Allow
+                Action:
+                  - iam:Get*
+                  - iam:List*
+                  - securityhub:GetFindings
+                  - accessanalyzer:ListAnalyzers
+                  - accessanalyzer:ListFindings
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - s3:GetBucketLogging
+                Resource: '*'
+              # Bedrock permissions
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: 'arn:aws:bedrock:*:*:foundation-model/anthropic.claude-3-sonnet-20240229-v1:0'
+              # SES permissions
+              - Effect: Allow
+                Action:
+                  - ses:SendRawEmail
+                Resource: '*'
+              # S3 permissions for report bucket
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${ReportBucket.Arn}/*'
+              # CloudWatch Logs
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 'arn:aws:logs:*:*:*'
+
+  # Lambda Function (Inline code for demo/template)
+  AccessReviewFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 300
+      MemorySize: 256
+      Environment:
+        Variables:
+          REPORT_BUCKET: !Ref ReportBucket
+          RECIPIENT_EMAIL: !Ref RecipientEmail
+      Code:
+        ZipFile: |
+          def lambda_handler(event, context):
+              return {"message": "Placeholder for automated access review logic"}
+
+  # EventBridge Rule for Scheduling
+  ScheduledRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Scheduled Access Review
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AccessReviewFunction.Arn
+          Id: AccessReviewTarget
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AccessReviewFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduledRule.Arn
+
+Outputs:
+  BucketName:
+    Value: !Ref ReportBucket
+  LambdaArn:
+    Value: !GetAtt AccessReviewFunction.Arn
