@@ -1,0 +1,15 @@
+[regions]
+0 = us-east-1
+1 = us-west-2
+
+[ignore_checks]
+# Add specific rule IDs to ignore if needed
+# Example: E3002, W2001
+
+[parameters]
+# Configure template checks
+# Example: strict_syntax = true
+
+[templates]
+# Template configuration
+ignore_bad_template = true

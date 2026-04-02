@@ -1,0 +1,435 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Automated Access Review - Enhanced Production Deployment with Security Hardening'
+
+Parameters:
+  RecipientEmail:
+    Type: String
+    Description: Email address to receive reports (must be SES verified)
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+  
+  ScheduleExpression:
+    Type: String
+    Default: 'cron(0 0 1 * ? *)'
+    Description: EventBridge schedule for the review (cron expression)
+    AllowedPattern: '^cron\(.+\)$|^rate\(.+\)$'
+  
+  BedrockRegion:
+    Type: String
+    Default: 'us-east-1'
+    Description: AWS Region for Bedrock service
+    AllowedValues:
+      - us-east-1
+      - us-west-2
+      - eu-west-1
+      - ap-northeast-1
+  
+  BedrockModelId:
+    Type: String
+    Default: 'anthropic.claude-3-sonnet-20240229-v1:0'
+    Description: Bedrock model ID for narrative generation
+  
+  EnableSCPAnalysis:
+    Type: String
+    Default: 'true'
+    Description: Enable Service Control Policy (SCP) analysis
+    AllowedValues:
+      - 'true'
+      - 'false'
+  
+  BucketName:
+    Type: String
+    Default: ''
+    Description: Optional custom S3 bucket name (leave empty for auto-generated name)
+  
+  DeploymentBucket:
+    Type: String
+    Default: ''
+    Description: S3 bucket name containing the Lambda deployment package
+    ConstraintDescription: Must be a valid S3 bucket name
+  
+  DeploymentKey:
+    Type: String
+    Default: ''
+    Description: S3 key (path) for the Lambda deployment package
+    ConstraintDescription: Must be a valid S3 key
+
+Conditions:
+  UseCustomBucketName: !Not [!Equals [!Ref BucketName, '']]
+  EnableSCP: !Equals [!Ref EnableSCPAnalysis, 'true']
+
+Resources:
+  # S3 Bucket for Reports with Enhanced Security
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If [UseCustomBucketName, !Ref BucketName, !Sub '${AWS::StackName}-access-reports']
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldReports
+            Status: Enabled
+            ExpirationInDays: 90
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-access-reports'
+        - Key: Purpose
+          Value: AWS Automated Access Review
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # S3 Bucket Policy for Enhanced Security
+  ReportBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReportBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyUnencryptedObjectUploads
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Sub '${ReportBucket.Arn}/*'
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'AES256'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: 
+              - !Sub '${ReportBucket.Arn}'
+              - !Sub '${ReportBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: AllowLambdaAccess
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub '${ReportBucket.Arn}/*'
+
+  # CloudWatch Log Group for Lambda
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-access-review'
+      RetentionInDays: 30
+
+  # IAM Role for Lambda with Enhanced Permissions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-lambda-execution-role'
+      Description: 'IAM role for AWS Automated Access Review Lambda function'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: AccessReviewPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # IAM Permissions
+              - Effect: Allow
+                Action:
+                  - iam:Get*
+                  - iam:List*
+                  - iam:GenerateServiceLastAccessedDetails
+                  - iam:GetAccessKeyLastUsed
+                Resource: '*'
+              
+              # Security Hub Permissions
+              - Effect: Allow
+                Action:
+                  - securityhub:GetFindings
+                  - securityhub:BatchGetFindings
+                Resource: '*'
+              
+              # Access Analyzer Permissions
+              - Effect: Allow
+                Action:
+                  - accessanalyzer:ListAnalyzers
+                  - accessanalyzer:ListFindings
+                  - accessanalyzer:GetFinding
+                Resource: '*'
+              
+              # CloudTrail Permissions
+              - Effect: Allow
+                Action:
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:ListTrails
+                  - cloudtrail:LookupEvents
+                Resource: '*'
+              
+              # S3 Permissions for CloudTrail bucket logging
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLogging
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource: '*'
+              
+              # Organizations Permissions (Conditional)
+              - Effect: Allow
+                Action:
+                  - organizations:DescribeOrganization
+                  - organizations:ListPolicies
+                  - organizations:ListTargetsForPolicy
+                  - organizations:ListRoots
+                  - organizations:ListOrganizationalUnitsForParent
+                  - organizations:ListAccountsForParent
+                  - organizations:DescribePolicy
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'aws:PrincipalOrgID': !Ref AWS::PrincipalOrgID
+              
+              # Bedrock Permissions
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:ListFoundationModels
+                Resource: !Sub 'arn:aws:bedrock:${BedrockRegion}:::foundation-model/*'
+              
+              # SES Permissions
+              - Effect: Allow
+                Action:
+                  - ses:SendRawEmail
+                  - ses:SendEmail
+                  - ses:VerifyEmailIdentity
+                Resource: '*'
+              
+              # S3 Permissions for report bucket
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Ref ReportBucket
+                  - !Sub '${ReportBucket.Arn}/*'
+              
+              # CloudWatch Logs Permissions
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-access-review*'
+              
+              # KMS Permissions (if using customer-managed keys)
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: '*'
+                Condition:
+                  StringLike:
+                    'kms:ViaService': !Sub 's3.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-lambda-execution-role'
+        - Key: Purpose
+          Value: AWS Automated Access Review
+
+  # Lambda Function with Enhanced Configuration
+  AccessReviewFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-access-review'
+      Description: 'AWS Automated Access Review - Lambda Function'
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          REPORT_BUCKET: !Ref ReportBucket
+          RECIPIENT_EMAIL: !Ref RecipientEmail
+          BEDROCK_REGION: !Ref BedrockRegion
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          ENABLE_SCP_ANALYSIS: !Ref EnableSCPAnalysis
+          LOG_LEVEL: INFO
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Ref DeploymentKey
+      ReservedConcurrentExecutions: 1
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-access-review'
+        - Key: Purpose
+          Value: AWS Automated Access Review
+      DeadLetterConfig:
+        TargetArn: !Ref DLQ
+
+  # Dead Letter Queue for Error Handling
+  DLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-dlq'
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-dlq'
+        - Key: Purpose
+          Value: AWS Automated Access Review DLQ
+
+  # EventBridge Scheduler
+  ScheduledRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-schedule'
+      Description: Scheduled Access Review
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AccessReviewFunction.Arn
+          Id: AccessReviewTarget
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 3600
+            MaximumRetryAttempts: 2
+
+  # Permission for EventBridge to invoke Lambda
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AccessReviewFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduledRule.Arn
+
+  # CloudWatch Alarm for Lambda Errors
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-lambda-errors'
+      AlarmDescription: 'Alarm for Lambda function errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AccessReviewFunction
+
+  # CloudWatch Alarm for Lambda Duration
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-lambda-duration'
+      AlarmDescription: 'Alarm for Lambda function duration'
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 250
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AccessReviewFunction
+
+  # SNS Topic for Notifications
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-notifications'
+      DisplayName: 'AWS Automated Access Review Notifications'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-notifications'
+        - Key: Purpose
+          Value: AWS Automated Access Review
+
+  # CloudWatch Alarm to SNS Notification
+  AlarmNotification:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn: NotificationTopic
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-alarm-notification'
+      AlarmDescription: 'Alarm for access review failures'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AccessReviewFunction
+      AlarmActions:
+        - !Ref NotificationTopic
+
+Outputs:
+  BucketName:
+    Description: 'S3 bucket name for reports'
+    Value: !Ref ReportBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-bucket-name'
+  
+  BucketArn:
+    Description: 'S3 bucket ARN'
+    Value: !GetAtt ReportBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-bucket-arn'
+  
+  LambdaArn:
+    Description: 'Lambda function ARN'
+    Value: !GetAtt AccessReviewFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-lambda-arn'
+  
+  LambdaName:
+    Description: 'Lambda function name'
+    Value: !Ref AccessReviewFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-lambda-name'
+  
+  ScheduleExpression:
+    Description: 'Schedule expression for the access review'
+    Value: !Ref ScheduleExpression
+    Export:
+      Name: !Sub '${AWS::StackName}-schedule-expression'
+  
+  NotificationTopicArn:
+    Description: 'SNS topic ARN for notifications'
+    Value: !Ref NotificationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-notification-topic-arn'
+  
+  DLQUrl:
+    Description: 'SQS dead letter queue URL'
+    Value: !Ref DLQ
+    Export:
+      Name: !Sub '${AWS::StackName}-dlq-url'

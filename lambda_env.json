@@ -1,0 +1,12 @@
+{
+    "Environment": {
+        "Variables": {
+            "REPORT_BUCKET": "aws-access-review-reportbucket-nfuouapwlpzu",
+            "RECIPIENT_EMAIL": "anandsundar96@gmail.com",
+            "BEDROCK_REGION": "us-east-1",
+            "BEDROCK_MODEL_ID": "google.gemma-3-27b-it",
+            "ENABLE_SCP_ANALYSIS": "true",
+            "LOG_LEVEL": "INFO"
+        }
+    }
+}

@@ -1,5 +1,0 @@
-{
-  "name": "AWS Automated Access Review",
-  "description": "A serverless IAM security automation tool that audits AWS accounts, generates AI-powered summaries using Bedrock, and sends reports via SES.",
-  "requestFramePermissions": []
-}

@@ -13,6 +13,9 @@
 > "Automated IAM access reviews, AI-powered reporting, and compliance evidence 
 > generation — deployed in one command."
 
+
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/181a04b2-a120-4739-9fc2-fe22b14c4229" />
+
 ---
 
 ## 📋 WHY I BUILT THIS
